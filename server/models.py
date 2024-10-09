@@ -18,7 +18,7 @@ class Hero(db.Model, SerializerMixin):
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String)
-    alias = db.Column(db.String)  # Updated from super_name to alias
+    super_name = db.Column(db.String)
 
     # add relationship
     hero_powers = db.relationship(
@@ -30,7 +30,7 @@ class Hero(db.Model, SerializerMixin):
     serialize_rules = ("-hero_powers.hero", "-hero_powers")
 
     def __repr__(self):
-        return f"<Hero {self.id} - {self.name}>"
+        return f"<Hero {self.id}>"
 
 
 class Power(db.Model, SerializerMixin):
