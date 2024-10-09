@@ -1,56 +1,94 @@
-from flask import Flask, jsonify, request, abort
-from flask_sqlalchemy import SQLAlchemy
+import os
+from flask import Flask, jsonify, make_response, request
 from flask_migrate import Migrate
+from flask_restful import Api, Resource
+from models import Hero, HeroPower, Power, db
+
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+DATABASE = os.environ.get("DB_URI", f"sqlite:///{os.path.join(BASE_DIR, 'app.db')}")
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///superheroes.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.json.compact = False
 
-db = SQLAlchemy(app)
 migrate = Migrate(app, db)
+db.init_app(app)
 
-# Import models here
-from models import Hero, Power, HeroPower
+# home
+@app.route("/")
+def index():
+    return "<h1>Code challenge</h1>"
 
-@app.route('/heroes', methods=['GET'])
+# get all heroes
+@app.route("/heroes", methods=["GET"])
 def get_heroes():
     heroes = Hero.query.all()
-    return jsonify([{'id': hero.id, 'name': hero.name, 'super_name': hero.super_name} for hero in heroes])
+    return jsonify([hero.to_dict(rules=("-hero_powers",)) for hero in heroes]), 200
 
-@app.route('/heroes/<int:id>', methods=['GET'])
-def get_hero(id):
-    hero = Hero.query.get_or_404(id)
-    return jsonify({'id': hero.id, 'name': hero.name, 'super_name': hero.super_name})
+# get hero by id
+@app.route("/heroes/<int:id>", methods=["GET"])
+def get_hero_by_id(id):
+    hero = db.session.get(Hero, id)
+    if not hero:
+        return jsonify({"error": "Hero not found"}), 404
+    return jsonify(hero.to_dict()), 200
 
-@app.route('/powers', methods=['GET'])
+# get all powers
+@app.route("/powers", methods=["GET"])
 def get_powers():
     powers = Power.query.all()
-    return jsonify([{'id': power.id, 'name': power.name, 'description': power.description} for power in powers])
+    return (
+        jsonify([power.to_dict(rules=("-hero_powers", "-heroes")) for power in powers]),
+        200,
+    )
 
-@app.route('/powers/<int:id>', methods=['GET'])
-def get_power(id):
-    power = Power.query.get_or_404(id)
-    return jsonify({'id': power.id, 'name': power.name, 'description': power.description})
+# get power by id
+@app.route("/powers/<int:id>", methods=["GET"])
+def get_power_by_id(id):
+    power = db.session.get(Power, id)
+    if not power:
+        return jsonify({"error": "Power not found"}), 404
+    return jsonify(power.to_dict(rules=("-hero_powers", "-heroes"))), 200
 
-@app.route('/hero_powers', methods=['POST'])
+# update powers
+@app.route("/powers/<int:id>", methods=["PATCH"])
+def patch_power_by_id(id):
+    power = db.session.get(Power, id)
+    if not power:
+        return jsonify({"error": "Power not found"}), 404
+
+    data = request.get_json()
+    description = data.get("description", "")
+
+    if len(description) < 20:
+        return jsonify({"errors": ["Description must be at least 20 characters long."]}), 400
+
+    power.description = description
+    db.session.commit()
+    return jsonify(power.to_dict()), 200
+
+# create hero power
+@app.route("/hero_powers", methods=["POST"])
 def create_hero_power():
     data = request.get_json()
-    strength = data.get('strength')
-    hero_id = data.get('hero_id')
-    power_id = data.get('power_id')
+    strength = data.get("strength")
+    hero_id = data.get("hero_id")
+    power_id = data.get("power_id")
 
-    if strength not in ['Strong', 'Weak', 'Average']:
-        return jsonify({'errors': ["Strength must be Strong, Weak, or Average"]}), 400
+    if strength not in ["Strong", "Weak", "Average"]:
+        return jsonify({"errors": ["Strength must be one of: Strong, Weak, Average."]}), 400
 
-    hero_power = HeroPower(hero_id=hero_id, power_id=power_id, strength=strength)
+    hero = db.session.get(Hero, hero_id)
+    power = db.session.get(Power, power_id)
+    if not hero or not power:
+        return jsonify({"error": "Hero or Power not found"}), 404
+
+    hero_power = HeroPower(strength=strength, hero_id=hero_id, power_id=power_id)
     db.session.add(hero_power)
     db.session.commit()
-    return jsonify({'id': hero_power.id, 'hero_id': hero_power.hero_id, 'power_id': hero_power.power_id, 'strength': hero_power.strength}), 201
 
-@app.errorhandler(404)
-def not_found(error):
-    return jsonify({'error': 'Not found'}), 404
+    return jsonify(hero_power.to_dict()), 200
 
-if __name__ == '__main__':
-    app.run(debug=True)
-
+if __name__ == "__main__":
+    app.run(port=5555, debug=True)
